@@ -14,6 +14,9 @@ from .types import SkillType, SkillNature, Skilltarget
 from .globals import capture_mouse_timer, show_area_rings, show_hero_follow_grid, show_distance_on_followers, hero_formation
 from .utils import IsHeroFlagged, DrawFlagAll, DrawHeroFlag, DistanceFromWaypoint, SameMapAsAccount
 from HeroAI.settings import Settings
+from Py4GWCoreLib.ImGui_src.Textures import ThemeTextures
+from Py4GWCoreLib.ImGui_src.types import StyleTheme, ControlAppearance
+
 
 from HeroAI.ui import (draw_combined_hero_panel, draw_command_panel, draw_configure_window, draw_dialog_overlay, 
                        draw_hero_panel, draw_hotbars, draw_party_overlay, draw_party_search_overlay, draw_skip_cutscene_overlay)
@@ -915,7 +918,9 @@ class HeroAI_Windows():
     @staticmethod   
     def DrawOptions(cached_data:CacheData):
         cached_data.ui_state_data.show_classic_controls = PyImGui.checkbox("Show Classic Controls", cached_data.ui_state_data.show_classic_controls)
-        #TODO Select combat engine options
+
+        if PyImGui.collapsing_header("Advanced Pathing & Unstuck"):
+            HeroAI_Windows.DrawAdvancedPathingOptions(cached_data)
 
     @staticmethod
     def DrawMessagingOptions(cached_data:CacheData):
@@ -1184,6 +1189,180 @@ class HeroAI_Windows():
         cached_data.HeroAI_windows.tools_window.end()            
 
     @staticmethod
+    def DrawColoredToggle(label: str, v: bool, width:float =0.0, height:float =0.0, disabled:bool =False) -> bool:
+        def group_text_with_icons(text: str):
+            if not text:
+                return []
+            groups = []
+            current_type = text[0] in IconsFontAwesome5.ALL_ICONS
+            current_run = [text[0]]
+            for ch in text[1:]:
+                is_icon = ch in IconsFontAwesome5.ALL_ICONS
+                if is_icon == current_type:
+                    current_run.append(ch)
+                else:
+                    groups.append((current_type, ''.join(current_run)))
+                    current_run = [ch]
+                    current_type = is_icon
+            if current_run:
+                groups.append((current_type, ''.join(current_run)))
+            return groups
+
+        enabled = not disabled
+        clicked = False
+        if disabled: PyImGui.begin_disabled(disabled)
+        style = ImGui.get_style()
+        current_style_var = style.ButtonPadding.get_current()
+        btn_padding = (current_style_var.value1, current_style_var.value2 or 0)
+        
+        if current_style_var.img_style_enum:
+            PyImGui.push_style_var2(current_style_var.img_style_enum, btn_padding[0], btn_padding[1]) 
+        
+        #NON THEMED
+        if style.Theme not in ImGui.Textured_Themes:
+            button_colors = [
+                style.ToggleButtonEnabled,
+                style.ToggleButtonEnabledHovered,
+                style.ToggleButtonEnabledActive,
+            ] if v else [
+                style.ToggleButtonDisabled,
+                style.ToggleButtonDisabledHovered,
+                style.ToggleButtonDisabledActive,
+            ]
+            
+            if enabled:
+                for button_color in button_colors:
+                    button_color.push_color()
+            
+            # Force Green if active and non-themed
+            if v and enabled:
+                 PyImGui.push_style_color(PyImGui.ImGuiCol.Button, (0.1, 0.6, 0.1, 1.0))
+                 PyImGui.push_style_color(PyImGui.ImGuiCol.ButtonHovered, (0.2, 0.7, 0.2, 1.0))
+                 PyImGui.push_style_color(PyImGui.ImGuiCol.ButtonActive, (0.05, 0.5, 0.05, 1.0))
+
+            clicked = PyImGui.button(label, width, height)
+
+            if v and enabled:
+                PyImGui.pop_style_color(3)
+
+            if enabled:
+                for button_color in button_colors:
+                    button_color.pop_color()
+            
+            if disabled: PyImGui.end_disabled()
+
+            if clicked:
+                v = not v
+                
+            if current_style_var.img_style_enum:
+                PyImGui.pop_style_var(1)
+            return v
+        
+        #THEMED
+        ImGui.push_style_color(PyImGui.ImGuiCol.Button, (0, 0, 0, 0))
+        ImGui.push_style_color(PyImGui.ImGuiCol.ButtonHovered, (0, 0, 0, 0))
+        ImGui.push_style_color(PyImGui.ImGuiCol.ButtonActive, (0, 0, 0, 0))
+        ImGui.push_style_color(PyImGui.ImGuiCol.Text, (0, 0, 0, 0))
+        ImGui.push_style_color(PyImGui.ImGuiCol.TextDisabled, (0, 0, 0, 0))                
+        clicked = PyImGui.button(label, width, height)
+        ImGui.pop_style_color(5)
+
+        item_rect_min, item_rect_max, item_rect_size = ImGui.get_item_rect()
+        button_texture_rect = (item_rect_min[0] - 3, item_rect_min[1] - 4, item_rect_size[0] + 9, item_rect_size[1] + 11) if style.Theme is StyleTheme.Guild_Wars else (item_rect_min[0] - 6, item_rect_min[1] - 4, item_rect_size[0] + 12, item_rect_size[1] + 11)
+        item_rect = (*item_rect_min, *item_rect_size)  
+              
+        display_label = label.split("##")[0]
+        
+        if not v:
+            style.Text.push_color((180, 180, 180, 200))
+        
+        text_color = style.TextDisabled.get_current().color_int if disabled else style.Text.get_current().color_int
+        
+        def get_button_color() -> tuple:
+            if v:
+                return (20, 180, 20, 255) # Green for Active
+            else:
+                return style.ToggleButtonDisabledActive.rgb_tuple if PyImGui.is_item_active() else style.ToggleButtonDisabledHovered.rgb_tuple if PyImGui.is_item_hovered() else style.ToggleButtonDisabled.rgb_tuple
+
+        tint = get_button_color() if enabled else style.ButtonTextureBackgroundDisabled.get_current().rgb_tuple
+                       
+        ThemeTextures.Button_Background.value.get_texture().draw_in_drawlist(
+            button_texture_rect[:2], 
+            button_texture_rect[2:],
+            tint=tint,
+        )
+        
+        frame_tint = (255, 255, 255, 255) if ImGui.is_mouse_in_rect(button_texture_rect) and enabled else (200, 200, 200, 255)
+        ThemeTextures.Button_Frame.value.get_texture().draw_in_drawlist(
+            button_texture_rect[:2], 
+            button_texture_rect[2:],
+            tint=frame_tint,
+        )
+        
+        text_size = PyImGui.calc_text_size(display_label)
+        text_x = button_texture_rect[0] + ((button_texture_rect[2] - text_size[0]) / 2)
+        text_y = item_rect[1] + ((item_rect[3] - text_size[1]) / 2) + 2
+    
+        PyImGui.push_clip_rect(
+            *item_rect,
+            True
+        )
+        
+        default_font_size = int(PyImGui.get_text_line_height())
+        fontawesome_font_size = int(default_font_size * 0.8)
+        offset_size = round((default_font_size - fontawesome_font_size) / 2)
+
+        groups = group_text_with_icons(display_label)
+        font_awesome_string = "".join([run for is_icon, run in groups if is_icon])
+        text_string = "".join([run for is_icon, run in groups if not is_icon]) 
+        
+        text_size_str = PyImGui.calc_text_size(text_string)
+        ImGui.push_font("Regular", fontawesome_font_size)
+        font_awesome_text_size = PyImGui.calc_text_size(font_awesome_string)
+        ImGui.pop_font()
+        
+        total_text_size = (text_size_str[0] + font_awesome_text_size[0], max(text_size_str[1], font_awesome_text_size[1]))
+        
+        text_x = button_texture_rect[0] + ((button_texture_rect[2] - total_text_size[0]) / 2)
+        text_y = button_texture_rect[1] + ((button_texture_rect[3] - total_text_size[1]) / 2)
+        
+        offset = (0, 0)
+
+        for is_icon, run in groups:
+            if is_icon:
+                ImGui.push_font("Regular", fontawesome_font_size)
+            else:
+                ImGui.push_font("Regular", default_font_size)
+            
+            text_size = PyImGui.calc_text_size(run)                
+            vertical_padding = 1 if is_icon else offset_size
+                            
+            PyImGui.draw_list_add_text(
+                text_x + offset[0],
+                text_y + vertical_padding,
+                text_color,
+                run,
+            )
+            
+            offset = (offset[0] + text_size[0], vertical_padding)
+            
+            ImGui.pop_font()
+
+        PyImGui.pop_clip_rect()
+        if not v:
+            style.Text.pop_color()
+
+        if current_style_var.img_style_enum:
+            PyImGui.pop_style_var(1)
+            
+        if disabled:PyImGui.end_disabled()
+        
+        if clicked:
+            v = not v
+        
+        return v
+
+    @staticmethod
     def DrawPanelButtons(identifier: str, source_game_option : HeroAIOptionStruct, set_global : bool = False):
         style = ImGui.get_style()
         
@@ -1216,18 +1395,20 @@ class HeroAI_Windows():
                             ConsoleLog("HeroAI", f"Setting Skills[{skill_index}] to {game_option.Skills[skill_index]} for account {account.AccountEmail}")
                             account_options.Skills[skill_index] = game_option.Skills[skill_index]         
         
-        avail_x, avail_y = PyImGui.get_content_region_avail()
-        table_width = avail_x
-        btn_size = (table_width / 5) - 4
+        style = ImGui.get_style()
+        table_width, _ = PyImGui.get_content_region_avail()
+        btn_size = (table_width / 6) - 4
         skill_size = (table_width / NUMBER_OF_SKILLS) - 4
         
         style.ItemSpacing.push_style_var(0, 0)
         style.CellPadding.push_style_var(2, 2)
         
-        if PyImGui.begin_table(f"GameOptionTable##{identifier}", 5, 0, table_width, btn_size + 2):
+        if PyImGui.begin_table(f"GameOptionTable##{identifier}", 6, 0, table_width, btn_size + 2):
             PyImGui.table_next_row()
             PyImGui.table_next_column()
-            Following = ImGui.toggle_button(IconsFontAwesome5.ICON_RUNNING + "##Following" + identifier, source_game_option.Following, btn_size, btn_size)
+            
+            Following = HeroAI_Windows.DrawColoredToggle(IconsFontAwesome5.ICON_RUNNING + "##Following" + identifier, source_game_option.Following, btn_size, btn_size)
+            
             if Following != source_game_option.Following:
                 source_game_option.Following = Following
                 
@@ -1236,7 +1417,8 @@ class HeroAI_Windows():
                 
             ImGui.show_tooltip("Following")
             PyImGui.table_next_column()
-            Avoidance = ImGui.toggle_button(IconsFontAwesome5.ICON_PODCAST + "##Avoidance" + identifier, source_game_option.Avoidance, btn_size, btn_size)
+            Avoidance = HeroAI_Windows.DrawColoredToggle(IconsFontAwesome5.ICON_PODCAST + "##Avoidance" + identifier, source_game_option.Avoidance, btn_size, btn_size)
+
             if Avoidance != source_game_option.Avoidance:
                 source_game_option.Avoidance = Avoidance
                 
@@ -1245,7 +1427,8 @@ class HeroAI_Windows():
                 
             ImGui.show_tooltip("Avoidance")
             PyImGui.table_next_column()
-            Looting = ImGui.toggle_button(IconsFontAwesome5.ICON_COINS + "##Looting" + identifier, source_game_option.Looting, btn_size, btn_size)
+            Looting = HeroAI_Windows.DrawColoredToggle(IconsFontAwesome5.ICON_COINS + "##Looting" + identifier, source_game_option.Looting, btn_size, btn_size)
+
             if Looting != source_game_option.Looting:
                 source_game_option.Looting = Looting
                 
@@ -1254,7 +1437,8 @@ class HeroAI_Windows():
                 
             ImGui.show_tooltip("Looting")
             PyImGui.table_next_column()
-            Targeting = ImGui.toggle_button(IconsFontAwesome5.ICON_BULLSEYE + "##Targeting" + identifier    , source_game_option.Targeting, btn_size, btn_size)
+            Targeting = HeroAI_Windows.DrawColoredToggle(IconsFontAwesome5.ICON_BULLSEYE + "##Targeting" + identifier    , source_game_option.Targeting, btn_size, btn_size)
+
             if Targeting != source_game_option.Targeting:
                 source_game_option.Targeting = Targeting
                 
@@ -1265,7 +1449,8 @@ class HeroAI_Windows():
                 
             ImGui.show_tooltip("Targeting")
             PyImGui.table_next_column()
-            Combat = ImGui.toggle_button(IconsFontAwesome5.ICON_SKULL_CROSSBONES + "##Combat" + identifier, source_game_option.Combat, btn_size, btn_size)
+            Combat = HeroAI_Windows.DrawColoredToggle(IconsFontAwesome5.ICON_SKULL_CROSSBONES + "##Combat" + identifier, source_game_option.Combat, btn_size, btn_size)
+
             if Combat != source_game_option.Combat:
                 source_game_option.Combat = Combat
                 
@@ -1273,6 +1458,18 @@ class HeroAI_Windows():
                     set_global_option(source_game_option, "Combat")
                 
             ImGui.show_tooltip("Combat")
+
+            PyImGui.table_next_column()
+            
+            # Advanced Pathing Toggle
+            adv_pathing = HeroAI_FloatingWindows.settings.advanced_pathing_enabled
+            new_adv_pathing = HeroAI_Windows.DrawColoredToggle(IconsFontAwesome5.ICON_ROUTE + "##AdvPathing" + identifier, adv_pathing, btn_size, btn_size)
+            
+            if new_adv_pathing != adv_pathing:
+                HeroAI_FloatingWindows.settings.advanced_pathing_enabled = new_adv_pathing
+                HeroAI_FloatingWindows.settings.save_settings()
+                
+            ImGui.show_tooltip("Advanced Pathing & Unstuck (Global Setting)")
             PyImGui.end_table()
 
         style.ButtonPadding.push_style_var(5 if style.Theme not in ImGui.Textured_Themes else 0, 3 if style.Theme not in ImGui.Textured_Themes else 2)
@@ -1280,7 +1477,7 @@ class HeroAI_Windows():
             PyImGui.table_next_row()
             for i in range(NUMBER_OF_SKILLS):
                 PyImGui.table_next_column()
-                skill_active = ImGui.toggle_button(f"{i + 1}##Skill{i}" + identifier, source_game_option.Skills[i], skill_size, skill_size)
+                skill_active = HeroAI_Windows.DrawColoredToggle(f"{i + 1}##Skill{i}" + identifier, source_game_option.Skills[i], skill_size, skill_size)
                 
                 if skill_active != source_game_option.Skills[i]:
                     source_game_option.Skills[i] = skill_active
@@ -1345,8 +1542,7 @@ class HeroAI_Windows():
         table_width = btn_size * 6 + 30
 
         ImGui.push_font("Regular",10)
-        if PyImGui.begin_child("ControlPanelChild", (215, 0), False, PyImGui.WindowFlags.AlwaysAutoResize):
-            if PyImGui.begin_table("MessagingTable", 5):
+        if PyImGui.begin_table("MessagingTable", 5):
                 PyImGui.table_next_row()
                 PyImGui.table_next_column()
                 if ImGui.colored_button(f"{IconsFontAwesome5.ICON_SKULL}##commands_resign", 
@@ -1495,7 +1691,6 @@ class HeroAI_Windows():
                 ImGui.push_font("Regular",10)
                 
                 PyImGui.end_table()
-            PyImGui.end_child()
         ImGui.pop_font()
             
     @staticmethod
@@ -1516,18 +1711,16 @@ class HeroAI_Windows():
 
         
         if ImGui.Begin(ini_key=cached_data.ini_key, name="HeroAI Control Panel", p_open=True, flags=PyImGui.WindowFlags.AlwaysAutoResize):
-            if PyImGui.begin_child("ControlPanelChild", (200, 110), False, PyImGui.WindowFlags.AlwaysAutoResize):
-                style = ImGui.get_style()
-                style.ItemSpacing.push_style_var(2, 2)
-                style.CellPadding.push_style_var(2, 2)
+            style = ImGui.get_style()
+            style.ItemSpacing.push_style_var(2, 2)
+            style.CellPadding.push_style_var(2, 2)
+        
+            HeroAI_Windows.DrawPanelButtons(cached_data.account_email, cached_data.global_options, set_global=True) 
+            _close_spacing() 
+            HeroAI_Windows.DrawButtonBar(cached_data)
             
-                HeroAI_Windows.DrawPanelButtons(cached_data.account_email, cached_data.global_options, set_global=True) 
-                _close_spacing() 
-                HeroAI_Windows.DrawButtonBar(cached_data)
-                
-                style.CellPadding.pop_style_var()
-                style.ItemSpacing.pop_style_var()
-                PyImGui.end_child()
+            style.CellPadding.pop_style_var()
+            style.ItemSpacing.pop_style_var()
                     
             PyImGui.separator()
             if PyImGui.tree_node("Players"):
@@ -1552,6 +1745,63 @@ class HeroAI_Windows():
                 PyImGui.tree_pop()
                 style.CellPadding.pop_style_var()
                 style.ItemSpacing.pop_style_var()
+
+            PyImGui.separator()
+            if PyImGui.tree_node("Advanced Pathing & Unstuck"):
+                style = ImGui.get_style()
+                style.ItemSpacing.push_style_var(2, 2)
+                style.CellPadding.push_style_var(2, 2)
+                HeroAI_Windows.DrawAdvancedPathingOptions(cached_data)
+                style.CellPadding.pop_style_var()
+                style.ItemSpacing.pop_style_var()
+                PyImGui.tree_pop()
                 
         ImGui.End(cached_data.ini_key)
+
+    @staticmethod
+    def DrawAdvancedPathingOptions(cached_data:CacheData):
+        adv_pathing = HeroAI_FloatingWindows.settings.advanced_pathing_enabled
+        new_adv_pathing = PyImGui.checkbox("Enable Advanced Pathing & Unstuck", adv_pathing)
+        if new_adv_pathing != adv_pathing:
+            HeroAI_FloatingWindows.settings.advanced_pathing_enabled = new_adv_pathing
+            HeroAI_FloatingWindows.settings.save_settings()
+        
+        if not HeroAI_FloatingWindows.settings.advanced_pathing_enabled:
+            ImGui.text_colored("Feature is currently DISABLED globally.", (1.0, 0.0, 0.0, 1.0))
+        else:
+            ImGui.text_colored("Feature is ENABLED.", (0.0, 1.0, 0.0, 1.0))
+
+        PyImGui.separator()
+
+        # Sanity Check Distance
+        sanity_val = HeroAI_FloatingWindows.settings.sanity_check_distance
+        new_sanity = ImGui.slider_float("Path Reject Threshold", sanity_val, 100.0, 2000.0)
+        if new_sanity != sanity_val:
+            HeroAI_FloatingWindows.settings.sanity_check_distance = new_sanity
+            HeroAI_FloatingWindows.settings.save_settings()
+        ImGui.show_tooltip("Distance (in game units) to reject a path if the first waypoint is too far.\nPrevents 'Ghost Wall' pathfinding errors.")
+
+        # Unstuck Radius
+        radius_val = HeroAI_FloatingWindows.settings.unstuck_radius
+        new_radius = ImGui.slider_float("Unstuck Radius", radius_val, 50.0, 300.0)
+        if new_radius != radius_val:
+            HeroAI_FloatingWindows.settings.unstuck_radius = new_radius
+            HeroAI_FloatingWindows.settings.save_settings()
+        ImGui.show_tooltip("Distance to move back during an unstuck attempt.")
+
+        # Recidivism Memory
+        memory_val = HeroAI_FloatingWindows.settings.recidivism_memory
+        new_memory = ImGui.slider_float("Recidivism Memory (s)", memory_val, 1.0, 60.0)
+        if new_memory != memory_val:
+            HeroAI_FloatingWindows.settings.recidivism_memory = new_memory
+            HeroAI_FloatingWindows.settings.save_settings()
+        ImGui.show_tooltip("How long (in seconds) the bot remembers it was stuck.\nKeeps hypersensitive mode active to prevent loops.")
+
+        # Hypersensitive Speed
+        speed_val = HeroAI_FloatingWindows.settings.hypersensitive_speed
+        new_speed = ImGui.slider_float("Stuck Check Interval (s)", speed_val, 0.1, 1.0)
+        if new_speed != speed_val:
+            HeroAI_FloatingWindows.settings.hypersensitive_speed = new_speed
+            HeroAI_FloatingWindows.settings.save_settings()
+        ImGui.show_tooltip("Time interval (in seconds) to check for stuck state when in hypersensitive mode.\nLower is faster reaction but higher CPU usage.")
         

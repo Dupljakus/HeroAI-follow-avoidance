@@ -91,6 +91,7 @@ from .CombatEvents import CombatEvents
 from .IniManager import IniManager
 
 from .py4gwcorelib_src.WidgetManager import WidgetHandler, Widget
+from .py4gwcorelib_src.ActionQueue import ActionQueueManager
 
 traceback = traceback
 math = math
@@ -128,6 +129,7 @@ IconsFontAwesome5 = IconsFontAwesome5
 IniManager = IniManager
 WidgetHandler = WidgetHandler
 Widget = Widget
+ActionQueueManager = ActionQueueManager
 
 
 
