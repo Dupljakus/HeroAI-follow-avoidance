@@ -15,8 +15,8 @@ from Py4GWCoreLib.routines_src.BehaviourTrees import BehaviorTree
 
 from HeroAI.cache_data import CacheData
 from HeroAI.constants import (FOLLOW_DISTANCE_OUT_OF_COMBAT, MELEE_RANGE_VALUE, RANGED_RANGE_VALUE)
-from HeroAI.globals import hero_formation
 from HeroAI.utils import (DistanceFromWaypoint)
+from HeroAI.following import Follow, LeaderUpdate, draw_follow_config, reset_map_quads as follow_reset_map_quads
 from HeroAI.windows import (HeroAI_FloatingWindows ,HeroAI_Windows,)
 from HeroAI.ui import (draw_configure_window, draw_skip_cutscene_overlay)
 from Py4GWCoreLib import (GLOBAL_CACHE, Agent, ActionQueueManager, LootConfig,
@@ -28,7 +28,7 @@ LEADER_FLAG_TOUCH_RANGE_THRESHOLD_VALUE = Range.Touch.value * 1.1
 LOOT_THROTTLE_CHECK = ThrottledTimer(250)
 
 cached_data = CacheData()
-map_quads : list[Map.Pathing.Quad] = []
+map_quads: list[Map.Pathing.Quad] = []
 
 #region Looting
 def LootingNode(cached_data: CacheData)-> BehaviorTree.NodeState:
@@ -169,107 +169,8 @@ def HandleAutoAttack(cached_data: CacheData) -> bool:
 
 
 #region Following
-following_flag = False
-def Follow(cached_data: CacheData):
-    global FOLLOW_DISTANCE_ON_COMBAT, following_flag, map_quads
-    
-    options = cached_data.account_options
-    if not options or not options.Following:  # halt operation if following is disabled
-        return False
-    
-    if not cached_data.follow_throttle_timer.IsExpired():
-        return False
-
-    if not map_quads:
-        map_quads = Map.Pathing.GetMapQuads()
-
-    if Player.GetAgentID() == GLOBAL_CACHE.Party.GetPartyLeaderID():
-        cached_data.follow_throttle_timer.Reset()
-        return False
-
-    party_number = GLOBAL_CACHE.Party.GetOwnPartyNumber()
-    leader_options = GLOBAL_CACHE.ShMem.GetGerHeroAIOptionsByPartyNumber(0)
-        
-    follow_x = 0.0
-    follow_y = 0.0
-    follow_angle = -1.0
-
-    if options.IsFlagged:  # my own flag
-        follow_x = options.FlagPosX
-        follow_y = options.FlagPosY
-        follow_angle = options.FlagFacingAngle
-        following_flag = True
-        
-    elif leader_options and leader_options.IsFlagged:  # leader's flag
-        follow_x = leader_options.FlagPosX
-        follow_y = leader_options.FlagPosY
-        follow_angle = leader_options.FlagFacingAngle
-        following_flag = False
-        
-    else:  # follow leader
-        following_flag = False
-        follow_x, follow_y = Agent.GetXY(GLOBAL_CACHE.Party.GetPartyLeaderID())
-        follow_angle = Agent.GetRotationAngle(GLOBAL_CACHE.Party.GetPartyLeaderID())
-
-    if following_flag:
-        FOLLOW_DISTANCE_ON_COMBAT = FOLLOW_COMBAT_DISTANCE
-    elif Agent.IsMelee(Player.GetAgentID()):
-        FOLLOW_DISTANCE_ON_COMBAT = MELEE_RANGE_VALUE
-    else:
-        FOLLOW_DISTANCE_ON_COMBAT = RANGED_RANGE_VALUE
-
-    if cached_data.data.in_aggro:
-        follow_distance = FOLLOW_DISTANCE_ON_COMBAT
-    else:
-        follow_distance = FOLLOW_DISTANCE_OUT_OF_COMBAT if not following_flag else 0.0
-
-    angle_changed_pass = False
-    if cached_data.data.angle_changed and (not cached_data.data.in_aggro):
-        angle_changed_pass = True
-
-    close_distance_check = DistanceFromWaypoint(follow_x, follow_y) <= follow_distance
-
-    if not angle_changed_pass and close_distance_check:
-        return False
-
-    hero_grid_pos = party_number + GLOBAL_CACHE.Party.GetHeroCount() + GLOBAL_CACHE.Party.GetHenchmanCount()
-    angle_on_hero_grid = follow_angle + Utils.DegToRad(hero_formation[hero_grid_pos])
-
-    def is_position_on_map(x, y) -> bool:
-        if not HeroAI_FloatingWindows.settings.ConfirmFollowPoint:
-            return True
-        
-        for quad in map_quads:    
-            if Map.Pathing._point_in_quad(x, y, quad):
-                return True
-            
-        return False
-    
-    if following_flag:
-        xx = follow_x
-        yy = follow_y
-    else:
-        xx = Range.Touch.value * math.cos(angle_on_hero_grid) + follow_x
-        yy = Range.Touch.value * math.sin(angle_on_hero_grid) + follow_y
-            
-        if not is_position_on_map(xx, yy):
-            ## fallback to direct follow if calculated point is off-map to avoid getting stuck or falling behind
-            xx = follow_x
-            yy = follow_y
-    
-    point_zero = (0.0, 0.0)
-    if Utils.Distance((follow_x, follow_y), point_zero) <= 5:
-        ConsoleLog(MODULE_NAME, "Follow: Target position too close to point zero, skipping move.", Py4GW.Console.MessageType.Warning)
-        return False
-    
-    if not Agent.IsValid(GLOBAL_CACHE.Party.GetPartyLeaderID()):
-        ConsoleLog(MODULE_NAME, "Follow: Party leader agent is not valid, cannot follow.", Py4GW.Console.MessageType.Warning)
-        return False
-    
-    cached_data.data.angle_changed = False
-    ActionQueueManager().ResetQueue("ACTION")
-    Player.Move(xx, yy)
-    return True
+# Follow logic moved to HeroAI.following module
+# Follow() and LeaderUpdate() are imported at the top
 
 show_debug = False
 
@@ -295,7 +196,10 @@ def handle_UI (cached_data: CacheData):
     if show_debug:
         draw_debug_window(cached_data)
         
-    HeroAI_FloatingWindows.show_ui(cached_data) 
+    HeroAI_FloatingWindows.show_ui(cached_data)
+    
+    # Leader-only follow config window
+    draw_follow_config(cached_data)
    
 def initialize(cached_data: CacheData) -> bool:  
     if not Routines.Checks.Map.MapValid():
@@ -313,6 +217,10 @@ def initialize(cached_data: CacheData) -> bool:
     HeroAI_Windows.DrawFlags(cached_data)
     HeroAI_FloatingWindows.draw_Targeting_floating_buttons(cached_data)     
     cached_data.UpdateCombat()
+    
+    # Leader calculates and writes follow positions for all followers
+    LeaderUpdate(cached_data)
+    
     return True
 
         
@@ -567,6 +475,7 @@ def main():
             pass
         else:
             map_quads.clear()
+            follow_reset_map_quads()
             HeroAI_BT.reset()
 
 
